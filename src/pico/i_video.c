@@ -55,6 +55,9 @@
 #include "hardware/dma.h"
 #include "hardware/structs/xip_ctrl.h"
 #include "hardware/spi.h"
+#if JPICOBRICKS
+#include "hardware/i2c.h"
+#endif
 #else
 #include "SDL_image.h"
 #include "SDL_mutex.h"
@@ -65,8 +68,13 @@
 int debugline = 39;
 
 #if PICO_ON_DEVICE
+#if JPICOBRICKS
+#define DISPLAYWIDTH 128
+#define DISPLAYHEIGHT 64
+#else
 #define DISPLAYWIDTH 72
 #define DISPLAYHEIGHT 40
+#endif
 #else
 
 #if FSAA
@@ -133,7 +141,7 @@ unsigned int joywait = 0;
 pixel_t *I_VideoBuffer; // todo can't have this
 
 uint8_t __aligned(4) frame_buffer[2][SCREENWIDTH * SCREENHEIGHT];
-static uint8_t palette[256];
+uint8_t palette[256];
 static uint8_t __scratch_x("shared_pal") shared_pal[NUM_SHARED_PALETTES][16];
 static int8_t next_pal=-1;
 
@@ -419,7 +427,21 @@ uint8_t byte_reverse(uint8_t b) {
 }
 
 static void display_driver_init() {
-
+#if JPICOBRICKS
+    i2c_init(J_OLED_I2C, 400 * 1000);
+    gpio_set_function(J_OLED_SDA_PIN, GPIO_FUNC_I2C);
+    gpio_set_function(J_OLED_SCL_PIN, GPIO_FUNC_I2C);
+    gpio_pull_up(J_OLED_SDA_PIN);
+    gpio_pull_up(J_OLED_SCL_PIN);
+    sleep_ms(10);
+    static const uint8_t init_cmds[] = {
+        0x00, 0xAE, 0xD5, 0x80, 0xA8, 0x3F, 0xD3, 0x00, 
+        0x40, 0x8D, 0x14, 0x20, 0x00, 0xA1, 0xC8, 0xDA, 
+        0x12, 0x81, 0xCF, 0xD9, 0xF1, 0xDB, 0x40, 0xA4, 
+        0xA6, 0xAF
+    };
+    i2c_write_blocking(J_OLED_I2C, J_OLED_ADDR, init_cmds, sizeof(init_cmds), false);
+#else
     gpio_init(J_OLED_CS);
     gpio_set_dir(J_OLED_CS, GPIO_OUT);
     gpio_put(J_OLED_CS, 0);
@@ -448,6 +470,7 @@ static void display_driver_init() {
     spi_write_blocking(spi0, command_initialise, sizeof(command_initialise));
 
     gpio_put(J_OLED_CS, 1);
+#endif
 }
 #else
 
@@ -550,7 +573,7 @@ static void core1() {
     uint dither = 0;
 
     while (true) {
-#if PICO_ON_DEVICE
+#if PICO_ON_DEVICE && !JPICOBRICKS
         gpio_put(J_OLED_CS, 0);
 
         gpio_put(J_OLED_DC, 0);
@@ -571,7 +594,11 @@ static void core1() {
                 for (int b = 0; b < 8; ++b) {
                     dither ^= 1;
 
+#if JPICOBRICKS
+                    int y = p*8 + b;
+#else
                     int y = (DISPLAYHEIGHT-1)-(p*8+b);
+#endif
 #if FSAA
                     uint8_t *pframe = &frame_buffer[display_frame_index][y*(SCREENWIDTH<<FSAA) + (x<<FSAA)];
                     uint lum = 0;
@@ -610,12 +637,27 @@ static void core1() {
                 field_buffer[p*DISPLAYWIDTH+x] = byte;
             }
         }
-        
+
+#if JPICOBRICKS
+        {
+            static uint8_t addr_cmds[] = { 0x00, 0x21, 0x00, 0x7F, 0x22, 0x00, 0x07 };
+            i2c_write_blocking(J_OLED_I2C, J_OLED_ADDR, addr_cmds, sizeof(addr_cmds), false);
+            static uint8_t i2c_frame[1 + 1024];
+            i2c_frame[0] = 0x40;
+            memcpy(&i2c_frame[1], field_buffer, 1024);
+            i2c_write_blocking(J_OLED_I2C, J_OLED_ADDR, i2c_frame, sizeof(i2c_frame), false);
+        }
+        l = 0;
+        dither ^= 1;
+        sem_release(&vsync);
+#else
         command_run[1] = contrast[l];
+#endif
 #else
         simulate_display(dither);
 #endif
 
+#if !JPICOBRICKS
         if (++l >= 3) {
             l = 0;
             dither ^= 1;
@@ -633,6 +675,7 @@ static void core1() {
         spi_write_blocking(spi0, command_run, sizeof(command_run));
 
         gpio_put(J_OLED_CS, 1);
+#endif
 #endif
 
         frame_time = delayed_by_us(frame_time, FRAME_PERIOD);
@@ -654,6 +697,11 @@ void I_InitGraphics(void)
     disallow_core1_malloc = true;
 #endif
     initialized = true;
+
+#if PICO_ON_DEVICE && JPICOBRICKS
+    extern void picobricks_splash(void);
+    picobricks_splash();
+#endif
 }
 
 // Bind all variables controlling video options into the configuration

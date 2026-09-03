@@ -1,6 +1,34 @@
+# == DO NOT EDIT THE FOLLOWING LINES for the Raspberry Pi Pico VS Code Extension to work ==
+if(WIN32)
+    set(USERHOME $ENV{USERPROFILE})
+else()
+    set(USERHOME $ENV{HOME})
+endif()
+set(sdkVersion 2.3.0)
+set(toolchainVersion 15_2_Rel1)
+set(picotoolVersion 2.3.0)
+set(picoVscode ${USERHOME}/.pico-sdk/cmake/pico-vscode.cmake)
+if (EXISTS ${picoVscode})
+    include(${picoVscode})
+endif()
+# ====================================================================================
 set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
 cmake_minimum_required(VERSION 3.13)
+
+# Default to Pico SDK & PicoBricks board if not specified (prevents accidental host macOS build)
+if (NOT DEFINED PICO_SDK_PATH AND NOT DEFINED ENV{PICO_SDK_PATH})
+    set(PICO_SDK_PATH "$ENV{HOME}/.pico-sdk/sdk/2.3.0")
+endif()
+if (NOT DEFINED PICO_EXTRAS_PATH AND NOT DEFINED ENV{PICO_EXTRAS_PATH})
+    set(PICO_EXTRAS_PATH "$ENV{HOME}/.pico-sdk/pico-extras")
+endif()
+if (NOT DEFINED PICO_TOOLCHAIN_PATH AND NOT DEFINED ENV{PICO_TOOLCHAIN_PATH})
+    set(PICO_TOOLCHAIN_PATH "$ENV{HOME}/.pico-sdk/toolchain/15_2_Rel1")
+endif()
+if (NOT DEFINED PICO_BOARD)
+    set(PICO_BOARD "jpicobricks")
+endif()
 
 # We use PICO_SDK_PATH being set as an indicator that we're doing a Pico BUILD
 if (PICO_SDK_PATH)

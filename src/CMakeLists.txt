@@ -591,14 +591,14 @@ function(add_doom_tiny SUFFIX RENDER_LIB)
         target_compile_definitions(doom_tiny${SUFFIX} PRIVATE
                 PICO_AUDIO_I2S_DATA_PIN=20
                 PICO_AUDIO_I2S_CLOCK_PIN_BASE=21
-                NO_USE_UART=1
+                NO_USE_UART=0
                 )
         pico_enable_stdio_uart(doom_tiny${SUFFIX} 0)
     elseif(STAMP_HACK)
         target_compile_definitions(doom_tiny${SUFFIX} PRIVATE
                 PICO_AUDIO_I2S_DATA_PIN=22
                 PICO_AUDIO_I2S_CLOCK_PIN_BASE=23
-                NO_USE_UART=1
+                NO_USE_UART=0
                 INCREASE_I2S_DRIVE_STRENGTH=1
         )
         pico_enable_stdio_uart(doom_tiny${SUFFIX} 0)
@@ -640,10 +640,16 @@ if (PICO_SDK)
             NO_USE_FINALE_BUNNY=1
     )
     target_compile_definitions(doom_tiny PRIVATE
-            TINY_WAD_ADDR=0x10040000
+            TINY_WAD_ADDR=0x10048000
     )
     target_link_libraries(doom_tiny PRIVATE tiny_settings)
+    if (PICO_ON_DEVICE)
+        target_link_libraries(doom_tiny PRIVATE hardware_i2c hardware_adc)
+    endif()
     add_doom_tiny(_nost render_newhope)
+    if (PICO_ON_DEVICE)
+        target_link_libraries(doom_tiny_nost PRIVATE hardware_i2c hardware_adc)
+    endif()
 
     target_compile_definitions(doom_tiny_nost PRIVATE
             # NO_USE_FINALE_CAST=1 # note this is only used by doom II but doesnt take that much more space
@@ -652,13 +658,13 @@ if (PICO_SDK)
     if (PICO_ON_DEVICE)
         suppress_tinyusb_warnings()
         add_doom_tiny(_usb render_newhope)
-        target_link_libraries(doom_tiny_usb PRIVATE tiny_settings pico_cd)
+        target_link_libraries(doom_tiny_usb PRIVATE tiny_settings pico_cd hardware_i2c hardware_adc)
         target_compile_definitions(doom_tiny_usb PRIVATE
                 USB_SUPPORT=1
-                TINY_WAD_ADDR=0x10042000 # ugh tinyusb is >8K currently!!
+                TINY_WAD_ADDR=0x10048000 # ugh tinyusb is >8K currently!!
         )
         add_doom_tiny(_nost_usb render_newhope)
-        target_link_libraries(doom_tiny_nost_usb PRIVATE pico_cd)
+        target_link_libraries(doom_tiny_nost_usb PRIVATE pico_cd hardware_i2c hardware_adc)
         target_compile_definitions(doom_tiny_nost_usb PRIVATE
                 USB_SUPPORT=1
                 TINY_WAD_ADDR=0x10048000

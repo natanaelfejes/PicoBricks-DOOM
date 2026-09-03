@@ -28,11 +28,24 @@
 #define VGASCREENWIDTH 320
 #define VGASCREENHEIGHT 200
 
+#if PICO_ON_DEVICE
+#include "pico.h"
+#endif
+#if JPICOBRICKS
+#define SCREENWIDTH 128
+#define SCREENHEIGHT 64
+#else
 #define SCREENWIDTH 72
 #define SCREENHEIGHT 40
+#endif
+
 static_assert(((SCREENWIDTH)&7)==0, "");
 
+#if JPICOBRICKS
+#define OVERLAY_DECIMATE 1
+#else
 #define OVERLAY_DECIMATE 2
+#endif
 //#define FSAA 1
 
 // Screen height used when aspect_ratio_correct=true.

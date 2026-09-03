@@ -55,6 +55,11 @@ bi_decl(bi_program_feature("USB keyboard support"));
 #define PIO_CAPSENSE 1
 #endif
 
+#if JPICOBRICKS
+#define GPIO_BUTTON_ADC 1
+#define GPIO_BUTTONS 1
+#endif
+
 #if ACCELEROMETER_SUPPORT
 #define I2C_SDA_PIN 26
 #define I2C_SCL_PIN 27
@@ -288,7 +293,204 @@ void button_event(key_type_t key, bool pressed) {
     D_PostEvent(&event);
 }
 
+
+#if GPIO_BUTTON_ADC
+extern uint8_t frame_buffer[2][128*64];
+extern int display_frame_index;
+extern uint8_t palette[256];
+
+static const uint8_t tiny_font[37][3] = {
+    {0x1F,0x11,0x1F}, {0x00,0x00,0x1F}, {0x1D,0x15,0x17}, {0x15,0x15,0x1F}, {0x07,0x04,0x1F}, {0x17,0x15,0x1D}, {0x1F,0x15,0x1D}, {0x01,0x01,0x1F}, {0x1F,0x15,0x1F}, {0x17,0x15,0x1F},
+    {0x00,0x00,0x00}, {0x1F,0x05,0x1F}, {0x1F,0x15,0x0A}, {0x0E,0x11,0x11}, {0x1F,0x11,0x0E}, {0x1F,0x15,0x15}, {0x1F,0x05,0x05}, {0x0E,0x15,0x1D}, {0x1F,0x04,0x1F}, {0x11,0x1F,0x11},
+    {0x08,0x10,0x0F}, {0x1F,0x04,0x1B}, {0x1F,0x10,0x10}, {0x1F,0x02,0x1F}, {0x1F,0x02,0x1C}, {0x0E,0x11,0x0E}, {0x1F,0x09,0x06}, {0x0E,0x15,0x1E}, {0x1F,0x09,0x16}, {0x12,0x15,0x09},
+    {0x01,0x1F,0x01}, {0x0F,0x10,0x0F}, {0x07,0x18,0x07}, {0x0F,0x10,0x0F}, {0x1B,0x04,0x1B}, {0x03,0x1C,0x03}, {0x04,0x0A,0x04} // +
+};
+
+static void pb_draw_char_scaled(uint8_t *fb, int x, int y, char c, int scale) {
+    int idx = 10;
+    if (c >= '0' && c <= '9') idx = c - '0';
+    else if (c >= 'A' && c <= 'Z') idx = c - 'A' + 11;
+    else if (c >= 'a' && c <= 'z') idx = c - 'a' + 11;
+    else if (c == '+') idx = 36;
+    if (idx == 10) return;
+
+    for (int col = 0; col < 3; col++) {
+        uint8_t bits = tiny_font[idx][col];
+        for (int row = 0; row < 5; row++) {
+            if (bits & (1 << (4 - row))) {
+                // Draw a scale x scale block
+                for(int dy=0; dy<scale; dy++) {
+                    for(int dx=0; dx<scale; dx++) {
+                        int px = x + col*scale + dx;
+                        int py = y + row*scale + dy;
+                        if (px < 128 && py < 64) {
+                            fb[py * 128 + px] = 255;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+static void pb_draw_string_scaled(uint8_t *fb, int x, int y, const char *str, int scale) {
+    while (*str) { 
+        pb_draw_char_scaled(fb, x, y, *str, scale); 
+        x += (3 * scale) + scale; // width + spacing
+        str++; 
+    }
+}
+
+void picobricks_splash(void) {
+    uint8_t *fb = frame_buffer[display_frame_index];
+    memset(fb, 0, 128 * 64);
+    for (int i = 0; i < 256; i++) {
+        palette[i] = (i > 128) ? 255 : 0;
+    }
+
+    pb_draw_string_scaled(fb, 4, 2, "PICOBRICKS DOOM", 2);
+    
+    pb_draw_string_scaled(fb, 8, 20, "DIAL TURN", 2);
+    pb_draw_string_scaled(fb, 8, 32, "TAP  FIRE+USE", 2);
+    pb_draw_string_scaled(fb, 8, 44, "HOLD BRAKE", 2);
+    
+    while (gpio_get(10) == 0) sleep_ms(10);
+    while (gpio_get(10) == 1) sleep_ms(10);
+    memset(fb, 0, 128 * 64);
+}
+#endif
+
+#if GPIO_BUTTON_ADC
+// PicoBricks: GP10 = fire button (active high), GP26 = potentiometer (ADC0) for turning
+#include "hardware/adc.h"
+
+static bool pb_btn_raw = false;
+static uint32_t pb_press_start = 0;
+static int click_count = 0;
+static uint32_t click_timer = 0;
+static bool is_braking = false;
+
+static bool pb_fire_state = false;
+static bool pb_use_state = false;
+static bool pb_nextweap_state = false;
+static bool pb_left_state = false;
+static bool pb_right_state = false;
+static bool pb_forward_state = false;
+
+static uint32_t pb_release_fire_time = 0;
+static uint32_t pb_release_use_time = 0;
+static uint32_t pb_release_weap_time = 0;
+
+static void picobricks_event(key_type_t key, bool pressed, bool *state) {
+    if (pressed == *state) return;
+    *state = pressed;
+    event_t event;
+    event.type  = pressed ? ev_keydown : ev_keyup;
+    event.data1 = key;
+    event.data2 = pressed ? key : 0;
+    event.data3 = pressed ? key : 0;
+    D_PostEvent(&event);
+}
+
+void picobricks_init() {
+    gpio_init(J_BUTTON_PIN);
+    gpio_set_dir(J_BUTTON_PIN, GPIO_IN);
+    // Active high on PicoBricks (pulled down externally)
+    gpio_pull_down(J_BUTTON_PIN);
+
+    // Red LED
+    gpio_init(7);
+    gpio_set_dir(7, GPIO_OUT);
+    gpio_put(7, 0);
+
+    // Relay
+    gpio_init(9);
+    gpio_set_dir(9, GPIO_OUT);
+    gpio_put(9, 0);
+
+    adc_init();
+    adc_gpio_init(J_POT_PIN);
+    adc_select_input(0); 
+
+    key_fire = KEY_RCTRL;
+    key_left = KEY_LEFTARROW;
+    key_right = KEY_RIGHTARROW;
+    key_up = KEY_UPARROW;
+    key_down = KEY_DOWNARROW;
+    key_use = ' ';
+    key_nextweapon = ']';
+}
+
+#include "doom/doomstat.h"
+#include "doom/d_player.h"
+static int pb_last_health = 100;
+static uint32_t pb_relay_off_time = 0;
+
+void picobricks_getevent() {
+    uint32_t now = to_ms_since_boot(get_absolute_time());
+    bool pressed = (gpio_get(J_BUTTON_PIN) == 1);
+    
+    if (pressed && !pb_btn_raw) {
+        pb_btn_raw = true; pb_press_start = now;
+    } else if (!pressed && pb_btn_raw) {
+        pb_btn_raw = false;
+        if (is_braking) {
+            is_braking = false;
+        } else {
+            click_count++;
+            click_timer = now;
+        }
+    } else if (pressed && pb_btn_raw) {
+        if (now - pb_press_start > 200 && !is_braking) {
+            is_braking = true;
+            click_count = 0;
+        }
+    }
+
+    if (click_count > 0 && now - click_timer > 250) {
+        if (click_count == 1) {
+            picobricks_event(key_fire, true, &pb_fire_state);
+            pb_release_fire_time = now + 100;
+        } else if (click_count == 2) {
+            picobricks_event(key_use, true, &pb_use_state);
+            pb_release_use_time = now + 100;
+        } else if (click_count >= 3) {
+            picobricks_event(key_nextweapon, true, &pb_nextweap_state);
+            pb_release_weap_time = now + 100;
+        }
+        click_count = 0;
+    }
+
+    if (pb_fire_state && now > pb_release_fire_time) picobricks_event(key_fire, false, &pb_fire_state);
+    if (pb_use_state && now > pb_release_use_time) picobricks_event(key_use, false, &pb_use_state);
+    if (pb_nextweap_state && now > pb_release_weap_time) picobricks_event(key_nextweapon, false, &pb_nextweap_state);
+
+    adc_select_input(0);
+    uint16_t pot = adc_read();
+    bool left_pressed  = (pot < J_POT_LEFT_THRESH);
+    bool right_pressed = (pot > J_POT_RIGHT_THRESH);
+    picobricks_event(key_left, left_pressed, &pb_left_state);
+    picobricks_event(key_right, right_pressed, &pb_right_state);
+        // Pulse the forward key to walk slower (smooth momentum in DOOM engine)
+    bool slow_walk = !is_braking && ((now % 66) < 33); // 50% duty cycle
+    picobricks_event(key_up, slow_walk, &pb_forward_state);
+
+    gpio_put(7, pb_fire_state ? 1 : 0);
+
+    if (playeringame[consoleplayer]) {
+        int h = players[consoleplayer].health;
+        if (h < pb_last_health) {
+            gpio_put(9, 1);
+            pb_relay_off_time = now + 100;
+        }
+        pb_last_health = h;
+    }
+    if (now > pb_relay_off_time) gpio_put(9, 0);
+}
+#endif
+
 void buttons_getevent() {
+
     for (int i = 0; i < BTN_COUNT; ++i) {
         bool pressed = (gpio_get(button_pins[i]) == 0);
         if (pressed != (button_state[i] != 0)) {

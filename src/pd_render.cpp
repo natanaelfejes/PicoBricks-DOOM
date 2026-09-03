@@ -2647,7 +2647,7 @@ void pd_end_frame(int wipe_start) {
                 for (int j = 0; j < 32; j++) {
                     if (not_fully_covered_cols[i] & (1u << j)) {
                         uint32_t *dest = (uint32_t *) (render_frame_buffer + i * 4 * 32 + j * 4 +
-                                                       not_fully_covered_yl * SCREENHEIGHT);
+                                                       not_fully_covered_yl * SCREENWIDTH);
                         for (int y = not_fully_covered_yl; y <= not_fully_covered_yh; y++, dest += SCREENWIDTH / 4) {
                             *dest = 0;
                         }
