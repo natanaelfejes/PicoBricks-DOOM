@@ -1881,11 +1881,7 @@ void D_DoomMain (void)
     startskill = sk_medium;
     startepisode = 1;
     startmap = 1;
-#if JPICOBRICKS
-    autostart = true;
-#else
     autostart = false;
-#endif
 
     //!
     // @category game
@@ -2116,14 +2112,8 @@ void D_DoomMain (void)
 
     if (gameaction != ga_loadgame )
     {
-	if (autostart || netgame) {
-#if !USE_WHD
-        I_SetPalette (W_CacheLumpName (DEH_String("PLAYPAL"),PU_CACHE));
-#else
-        I_SetPaletteNum(0);
-#endif
+	if (autostart || netgame)
 	    G_InitNew (startskill, startepisode, startmap);
-    }
 	else
 	    D_StartTitle ();                // start up intro loop
     }
