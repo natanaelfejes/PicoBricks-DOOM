@@ -299,65 +299,6 @@ extern uint8_t frame_buffer[2][128*64];
 extern int display_frame_index;
 extern uint8_t palette[256];
 
-static const uint8_t tiny_font[37][3] = {
-    {0x1F,0x11,0x1F}, {0x00,0x00,0x1F}, {0x1D,0x15,0x17}, {0x15,0x15,0x1F}, {0x07,0x04,0x1F}, {0x17,0x15,0x1D}, {0x1F,0x15,0x1D}, {0x01,0x01,0x1F}, {0x1F,0x15,0x1F}, {0x17,0x15,0x1F},
-    {0x00,0x00,0x00}, {0x1F,0x05,0x1F}, {0x1F,0x15,0x0A}, {0x0E,0x11,0x11}, {0x1F,0x11,0x0E}, {0x1F,0x15,0x15}, {0x1F,0x05,0x05}, {0x0E,0x15,0x1D}, {0x1F,0x04,0x1F}, {0x11,0x1F,0x11},
-    {0x08,0x10,0x0F}, {0x1F,0x04,0x1B}, {0x1F,0x10,0x10}, {0x1F,0x02,0x1F}, {0x1F,0x02,0x1C}, {0x0E,0x11,0x0E}, {0x1F,0x09,0x06}, {0x0E,0x15,0x1E}, {0x1F,0x09,0x16}, {0x12,0x15,0x09},
-    {0x01,0x1F,0x01}, {0x0F,0x10,0x0F}, {0x07,0x18,0x07}, {0x0F,0x10,0x0F}, {0x1B,0x04,0x1B}, {0x03,0x1C,0x03}, {0x04,0x0A,0x04} // +
-};
-
-static void pb_draw_char_scaled(uint8_t *fb, int x, int y, char c, int scale) {
-    int idx = 10;
-    if (c >= '0' && c <= '9') idx = c - '0';
-    else if (c >= 'A' && c <= 'Z') idx = c - 'A' + 11;
-    else if (c >= 'a' && c <= 'z') idx = c - 'a' + 11;
-    else if (c == '+') idx = 36;
-    if (idx == 10) return;
-
-    for (int col = 0; col < 3; col++) {
-        uint8_t bits = tiny_font[idx][col];
-        for (int row = 0; row < 5; row++) {
-            if (bits & (1 << (4 - row))) {
-                // Draw a scale x scale block
-                for(int dy=0; dy<scale; dy++) {
-                    for(int dx=0; dx<scale; dx++) {
-                        int px = x + col*scale + dx;
-                        int py = y + row*scale + dy;
-                        if (px < 128 && py < 64) {
-                            fb[py * 128 + px] = 255;
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-static void pb_draw_string_scaled(uint8_t *fb, int x, int y, const char *str, int scale) {
-    while (*str) { 
-        pb_draw_char_scaled(fb, x, y, *str, scale); 
-        x += (3 * scale) + scale; // width + spacing
-        str++; 
-    }
-}
-
-void picobricks_splash(void) {
-    uint8_t *fb = frame_buffer[display_frame_index];
-    memset(fb, 0, 128 * 64);
-    for (int i = 0; i < 256; i++) {
-        palette[i] = (i > 128) ? 255 : 0;
-    }
-
-    pb_draw_string_scaled(fb, 4, 2, "PICOBRICKS DOOM", 2);
-    
-    pb_draw_string_scaled(fb, 8, 20, "DIAL TURN", 2);
-    pb_draw_string_scaled(fb, 8, 32, "TAP  FIRE+USE", 2);
-    pb_draw_string_scaled(fb, 8, 44, "HOLD BRAKE", 2);
-    
-    while (gpio_get(10) == 0) sleep_ms(10);
-    while (gpio_get(10) == 1) sleep_ms(10);
-    memset(fb, 0, 128 * 64);
-}
 #endif
 
 #if GPIO_BUTTON_ADC

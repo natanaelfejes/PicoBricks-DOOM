@@ -698,10 +698,7 @@ void I_InitGraphics(void)
 #endif
     initialized = true;
 
-#if PICO_ON_DEVICE && JPICOBRICKS
-    extern void picobricks_splash(void);
-    picobricks_splash();
-#endif
+
 }
 
 // Bind all variables controlling video options into the configuration

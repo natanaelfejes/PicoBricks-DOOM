@@ -864,7 +864,11 @@ boolean G_Responder (event_t* ev)
 	    (ev->type == ev_mouse && ev->data1) || 
 	    (ev->type == ev_joystick && ev->data1) ) 
 	{ 
+#if JPICOBRICKS
+        G_InitNew(sk_medium, 1, 1);
+#else
 	    M_StartControlPanel (); 
+#endif
 	    return true; 
 	} 
 	return false; 
