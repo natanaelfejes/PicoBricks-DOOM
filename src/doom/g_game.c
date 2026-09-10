@@ -865,7 +865,7 @@ boolean G_Responder (event_t* ev)
 	    (ev->type == ev_joystick && ev->data1) ) 
 	{ 
 #if JPICOBRICKS
-        G_InitNew(sk_medium, 1, 1);
+        G_DeferedInitNew(sk_medium, 1, 1, false);
 #else
 	    M_StartControlPanel (); 
 #endif

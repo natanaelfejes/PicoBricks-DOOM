@@ -1881,7 +1881,11 @@ void D_DoomMain (void)
     startskill = sk_medium;
     startepisode = 1;
     startmap = 1;
+#if JPICOBRICKS
+    autostart = true;
+#else
     autostart = false;
+#endif
 
     //!
     // @category game
