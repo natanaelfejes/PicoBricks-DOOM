@@ -233,10 +233,9 @@ volatile uint8_t wipe_min;
 
 
 static inline uint8_t crapify_rgb(uint8_t r, uint8_t g, uint8_t b) {
-    uint lum = (r*5 + g*3 + b*3) / 8;
-    if (lum > 255) {
-        lum = 255;
-    }
+    // BT.601 perceptual luminance: green dominates human brightness perception
+    // Coefficients sum to exactly 8, so division maps 0-255 cleanly with no clipping
+    uint lum = (r*2 + g*5 + b*1) / 8;
     return lum;
 }
 
@@ -566,6 +565,14 @@ static void simulate_display(uint dither) {
 
 //#define TESTCARD_BAR 1
 
+// 4x4 Bayer matrix for ordered dithering (values 0-15, normalized to 0-255 thresholds)
+static const uint8_t bayer4x4[4][4] = {
+    {  0, 128,  32, 160 },
+    { 192,  64, 224,  96 },
+    {  48, 176,  16, 144 },
+    { 240, 112, 208,  80 }
+};
+
 static void core1() {
     absolute_time_t frame_time = get_absolute_time();
 
@@ -579,6 +586,44 @@ static void core1() {
         gpio_put(J_OLED_DC, 0);
         spi_write_blocking(spi0, command_park, sizeof(command_park));
 #endif
+
+#if JPICOBRICKS
+        // PicoBricks: single-pass Bayer matrix ordered dithering
+        sem_acquire_blocking(&vsync);
+
+        for (int p = 0; p < (DISPLAYHEIGHT / 8) ; ++p) {
+            for (int x = 0; x < DISPLAYWIDTH; ++x) {
+                uint8_t byte = 0;
+                for (int b = 0; b < 8; ++b) {
+                    int y = p*8 + b;
+                    uint8_t *pframe = &frame_buffer[display_frame_index][y*SCREENWIDTH + x];
+                    uint lum = palette[*pframe];
+
+                    // Bayer matrix ordered dithering: compare luminance against
+                    // spatially varying threshold to produce 17 effective grayscale
+                    // levels on a 1-bit display
+                    uint8_t threshold = bayer4x4[y & 3][x & 3];
+
+                    byte >>= 1;
+                    if (lum > threshold) {
+                        byte |= 0x80;
+                    }
+                }
+                field_buffer[p*DISPLAYWIDTH+x] = byte;
+            }
+        }
+
+        {
+            static uint8_t addr_cmds[] = { 0x00, 0x21, 0x00, 0x7F, 0x22, 0x00, 0x07 };
+            i2c_write_blocking(J_OLED_I2C, J_OLED_ADDR, addr_cmds, sizeof(addr_cmds), false);
+            static uint8_t i2c_frame[1 + 1024];
+            i2c_frame[0] = 0x40;
+            memcpy(&i2c_frame[1], field_buffer, 1024);
+            i2c_write_blocking(J_OLED_I2C, J_OLED_ADDR, i2c_frame, sizeof(i2c_frame), false);
+        }
+        sem_release(&vsync);
+
+#else  // !JPICOBRICKS
 
         if (l == 0) {
             sem_acquire_blocking(&vsync);
@@ -594,11 +639,7 @@ static void core1() {
                 for (int b = 0; b < 8; ++b) {
                     dither ^= 1;
 
-#if JPICOBRICKS
-                    int y = p*8 + b;
-#else
                     int y = (DISPLAYHEIGHT-1)-(p*8+b);
-#endif
 #if FSAA
                     uint8_t *pframe = &frame_buffer[display_frame_index][y*(SCREENWIDTH<<FSAA) + (x<<FSAA)];
                     uint lum = 0;
@@ -638,24 +679,11 @@ static void core1() {
             }
         }
 
-#if JPICOBRICKS
-        {
-            static uint8_t addr_cmds[] = { 0x00, 0x21, 0x00, 0x7F, 0x22, 0x00, 0x07 };
-            i2c_write_blocking(J_OLED_I2C, J_OLED_ADDR, addr_cmds, sizeof(addr_cmds), false);
-            static uint8_t i2c_frame[1 + 1024];
-            i2c_frame[0] = 0x40;
-            memcpy(&i2c_frame[1], field_buffer, 1024);
-            i2c_write_blocking(J_OLED_I2C, J_OLED_ADDR, i2c_frame, sizeof(i2c_frame), false);
-        }
-        l = 0;
-        dither ^= 1;
-        sem_release(&vsync);
-#else
         command_run[1] = contrast[l];
-#endif
 #else
         simulate_display(dither);
-#endif
+#endif  // PICO_ON_DEVICE
+#endif  // !JPICOBRICKS
 
 #if !JPICOBRICKS
         if (++l >= 3) {

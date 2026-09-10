@@ -245,6 +245,7 @@ static const uint8_t button_pins[BTN_COUNT] = {
 };
 static uint8_t button_state[BTN_COUNT] = {0};
 
+#if !GPIO_BUTTON_ADC
 void buttons_init() {
     for (int i = 0; i < count_of(button_pins); ++i) {
         gpio_init(button_pins[i]);
@@ -276,6 +277,7 @@ void buttons_init() {
     key_menu_confirm   = KEY_RCTRL;
     key_menu_abort     = KEY_RSHIFT;
 }
+#endif
 
 void button_event(key_type_t key, bool pressed) {
     event_t event;
@@ -412,8 +414,8 @@ void picobricks_getevent() {
     bool right_pressed = (pot > J_POT_RIGHT_THRESH);
     picobricks_event(key_left, left_pressed, &pb_left_state);
     picobricks_event(key_right, right_pressed, &pb_right_state);
-        // Pulse the forward key to walk slower (smooth momentum in DOOM engine)
-    bool slow_walk = !is_braking && ((now % 66) < 33); // 50% duty cycle
+    // Pulse the forward key at DOOM's native 35Hz tic rate for smooth half-speed walk
+    bool slow_walk = !is_braking && ((now % 57) < 28); // ~35Hz aligned, 50% duty cycle
     picobricks_event(key_up, slow_walk, &pb_forward_state);
 
     gpio_put(7, pb_fire_state ? 1 : 0);
@@ -430,6 +432,7 @@ void picobricks_getevent() {
 }
 #endif
 
+#if !GPIO_BUTTON_ADC
 void buttons_getevent() {
 
     for (int i = 0; i < BTN_COUNT; ++i) {
@@ -469,9 +472,9 @@ void buttons_getevent() {
         }
     }
 }
+#endif  // !GPIO_BUTTON_ADC
 
-#endif
-
+#endif  // GPIO_BUTTONS
 
 static const int scancode_translate_table[] = SCANCODE_TO_KEYS_ARRAY;
 
@@ -962,7 +965,9 @@ void I_InputInit(void) {
     capsense_init();
 #endif
 
-#if GPIO_BUTTONS
+#if GPIO_BUTTON_ADC
+    picobricks_init();
+#elif GPIO_BUTTONS
     buttons_init();
 #endif
 
@@ -986,7 +991,9 @@ void I_GetEventTimeout(int key_timeout) {
     capsense_getevent();
 #endif
 
-#if GPIO_BUTTONS
+#if GPIO_BUTTON_ADC
+    picobricks_getevent();
+#elif GPIO_BUTTONS
     buttons_getevent();
 #endif
 
