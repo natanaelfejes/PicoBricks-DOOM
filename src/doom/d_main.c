@@ -2116,8 +2116,14 @@ void D_DoomMain (void)
 
     if (gameaction != ga_loadgame )
     {
-	if (autostart || netgame)
+	if (autostart || netgame) {
+#if !USE_WHD
+        I_SetPalette (W_CacheLumpName (DEH_String("PLAYPAL"),PU_CACHE));
+#else
+        I_SetPaletteNum(0);
+#endif
 	    G_InitNew (startskill, startepisode, startmap);
+    }
 	else
 	    D_StartTitle ();                // start up intro loop
     }
