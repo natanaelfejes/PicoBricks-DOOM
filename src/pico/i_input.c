@@ -245,7 +245,6 @@ static const uint8_t button_pins[BTN_COUNT] = {
 };
 static uint8_t button_state[BTN_COUNT] = {0};
 
-#if !GPIO_BUTTON_ADC
 void buttons_init() {
     for (int i = 0; i < count_of(button_pins); ++i) {
         gpio_init(button_pins[i]);
@@ -277,7 +276,6 @@ void buttons_init() {
     key_menu_confirm   = KEY_RCTRL;
     key_menu_abort     = KEY_RSHIFT;
 }
-#endif
 
 void button_event(key_type_t key, bool pressed) {
     event_t event;
@@ -301,6 +299,65 @@ extern uint8_t frame_buffer[2][128*64];
 extern int display_frame_index;
 extern uint8_t palette[256];
 
+static const uint8_t tiny_font[37][3] = {
+    {0x1F,0x11,0x1F}, {0x00,0x00,0x1F}, {0x1D,0x15,0x17}, {0x15,0x15,0x1F}, {0x07,0x04,0x1F}, {0x17,0x15,0x1D}, {0x1F,0x15,0x1D}, {0x01,0x01,0x1F}, {0x1F,0x15,0x1F}, {0x17,0x15,0x1F},
+    {0x00,0x00,0x00}, {0x1F,0x05,0x1F}, {0x1F,0x15,0x0A}, {0x0E,0x11,0x11}, {0x1F,0x11,0x0E}, {0x1F,0x15,0x15}, {0x1F,0x05,0x05}, {0x0E,0x15,0x1D}, {0x1F,0x04,0x1F}, {0x11,0x1F,0x11},
+    {0x08,0x10,0x0F}, {0x1F,0x04,0x1B}, {0x1F,0x10,0x10}, {0x1F,0x02,0x1F}, {0x1F,0x02,0x1C}, {0x0E,0x11,0x0E}, {0x1F,0x09,0x06}, {0x0E,0x15,0x1E}, {0x1F,0x09,0x16}, {0x12,0x15,0x09},
+    {0x01,0x1F,0x01}, {0x0F,0x10,0x0F}, {0x07,0x18,0x07}, {0x0F,0x10,0x0F}, {0x1B,0x04,0x1B}, {0x03,0x1C,0x03}, {0x04,0x0A,0x04} // +
+};
+
+static void pb_draw_char_scaled(uint8_t *fb, int x, int y, char c, int scale) {
+    int idx = 10;
+    if (c >= '0' && c <= '9') idx = c - '0';
+    else if (c >= 'A' && c <= 'Z') idx = c - 'A' + 11;
+    else if (c >= 'a' && c <= 'z') idx = c - 'a' + 11;
+    else if (c == '+') idx = 36;
+    if (idx == 10) return;
+
+    for (int col = 0; col < 3; col++) {
+        uint8_t bits = tiny_font[idx][col];
+        for (int row = 0; row < 5; row++) {
+            if (bits & (1 << (4 - row))) {
+                // Draw a scale x scale block
+                for(int dy=0; dy<scale; dy++) {
+                    for(int dx=0; dx<scale; dx++) {
+                        int px = x + col*scale + dx;
+                        int py = y + row*scale + dy;
+                        if (px < 128 && py < 64) {
+                            fb[py * 128 + px] = 255;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+static void pb_draw_string_scaled(uint8_t *fb, int x, int y, const char *str, int scale) {
+    while (*str) { 
+        pb_draw_char_scaled(fb, x, y, *str, scale); 
+        x += (3 * scale) + scale; // width + spacing
+        str++; 
+    }
+}
+
+void picobricks_splash(void) {
+    uint8_t *fb = frame_buffer[display_frame_index];
+    memset(fb, 0, 128 * 64);
+    for (int i = 0; i < 256; i++) {
+        palette[i] = (i > 128) ? 255 : 0;
+    }
+
+    pb_draw_string_scaled(fb, 4, 2, "PICOBRICKS DOOM", 2);
+    
+    pb_draw_string_scaled(fb, 8, 20, "DIAL TURN", 2);
+    pb_draw_string_scaled(fb, 8, 32, "TAP  FIRE+USE", 2);
+    pb_draw_string_scaled(fb, 8, 44, "HOLD BRAKE", 2);
+    
+    while (gpio_get(10) == 0) sleep_ms(10);
+    while (gpio_get(10) == 1) sleep_ms(10);
+    memset(fb, 0, 128 * 64);
+}
 #endif
 
 #if GPIO_BUTTON_ADC
@@ -414,8 +471,8 @@ void picobricks_getevent() {
     bool right_pressed = (pot > J_POT_RIGHT_THRESH);
     picobricks_event(key_left, left_pressed, &pb_left_state);
     picobricks_event(key_right, right_pressed, &pb_right_state);
-    // Pulse the forward key at DOOM's native 35Hz tic rate for smooth half-speed walk
-    bool slow_walk = !is_braking && ((now % 57) < 28); // ~35Hz aligned, 50% duty cycle
+        // Pulse the forward key to walk slower (smooth momentum in DOOM engine)
+    bool slow_walk = !is_braking && ((now % 66) < 33); // 50% duty cycle
     picobricks_event(key_up, slow_walk, &pb_forward_state);
 
     gpio_put(7, pb_fire_state ? 1 : 0);
@@ -432,7 +489,6 @@ void picobricks_getevent() {
 }
 #endif
 
-#if !GPIO_BUTTON_ADC
 void buttons_getevent() {
 
     for (int i = 0; i < BTN_COUNT; ++i) {
@@ -472,9 +528,9 @@ void buttons_getevent() {
         }
     }
 }
-#endif  // !GPIO_BUTTON_ADC
 
-#endif  // GPIO_BUTTONS
+#endif
+
 
 static const int scancode_translate_table[] = SCANCODE_TO_KEYS_ARRAY;
 
@@ -965,9 +1021,7 @@ void I_InputInit(void) {
     capsense_init();
 #endif
 
-#if GPIO_BUTTON_ADC
-    picobricks_init();
-#elif GPIO_BUTTONS
+#if GPIO_BUTTONS
     buttons_init();
 #endif
 
@@ -991,9 +1045,7 @@ void I_GetEventTimeout(int key_timeout) {
     capsense_getevent();
 #endif
 
-#if GPIO_BUTTON_ADC
-    picobricks_getevent();
-#elif GPIO_BUTTONS
+#if GPIO_BUTTONS
     buttons_getevent();
 #endif
 
